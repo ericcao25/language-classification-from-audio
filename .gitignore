@@ -1,0 +1,11 @@
+*.pkl
+*.pth
+*.txt
+!requirements.txt
+*.data
+__pycache__/
+.venv/
+.ipynb_checkpoints/
+fleurs/
+*.pt
+datasets/
