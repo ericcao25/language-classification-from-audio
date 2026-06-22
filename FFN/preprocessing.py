@@ -3,7 +3,7 @@ import torch
 import torchaudio
 from tqdm import tqdm
 from datasets import load_dataset, interleave_datasets, DatasetDict
-from FFN.build_configs import load_configs
+from build_configs import load_configs
 
 
 TARGET_SR = 16000
@@ -66,7 +66,7 @@ def preprocess_and_save_shards(split_ds, shard_dir, prefix, global_to_local,
 
     print(f"Saved {total} examples into shards at: {shard_dir}")
 
-def preprocess(region):
+def preprocess(region, save_root="fleurs_preprocessed"):
     region_info = load_configs(region)
     global_ids = region_info["lang_ids"]
     configs = region_info["configs"]
@@ -81,11 +81,11 @@ def preprocess(region):
     )
     amp_to_db = torchaudio.transforms.AmplitudeToDB()
 
-    SAVE_ROOT = "fleurs_preprocessed/" + region
-    os.makedirs(SAVE_ROOT, exist_ok=True)
-    train_shards = os.path.join(SAVE_ROOT, "train_shards")
-    val_shards   = os.path.join(SAVE_ROOT, "validation_shards")
-    test_shards  = os.path.join(SAVE_ROOT, "test_shards")
+    save_root += "/" + region
+    os.makedirs(save_root, exist_ok=True)
+    train_shards = os.path.join(save_root, "train_shards")
+    val_shards   = os.path.join(save_root, "validation_shards")
+    test_shards  = os.path.join(save_root, "test_shards")
     preprocess_and_save_shards(ds["train"], train_shards, "train", global_to_local, mel, amp_to_db, shard_size=500)
     preprocess_and_save_shards(ds["validation"], val_shards, "validation", global_to_local, mel, amp_to_db, shard_size=500)
     preprocess_and_save_shards(ds["test"], test_shards, "test", global_to_local, mel, amp_to_db, shard_size=500)
