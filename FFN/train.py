@@ -13,14 +13,60 @@ from sklearn.metrics import confusion_matrix, accuracy_score
 from preprocessing import preprocess
 
 
-class PreprocessedDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
+class ShardedDataset(Dataset):
+    """Loads shard files lazily and shuffles shards"""
+    def __init__(self, shard_dir, prefix, shuffle=False, seed=42):
+        self.files = sorted(glob.glob(os.path.join(shard_dir, f"{prefix}_shard_*.pt")))
+        if not self.files:
+            raise FileNotFoundError(f"No shards found in {shard_dir} with prefix '{prefix}'")
+ 
+        self.shuffle = shuffle
+        self.seed = seed
+ 
+        # Count examples per shard
+        self.shard_lengths = []
+        for f in self.files:
+            shard = torch.load(f, weights_only=False)
+            self.shard_lengths.append(len(shard))
+ 
+        self._build_index(epoch=0)
+        self._cached_shard_idx = None
+        self._cached_shard = None
+ 
+    def _build_index(self, epoch):
+        """Build a flat list of (shard_file_idx, within_shard_idx) pairs,
+        optionally shuffling shard order and within-shard order."""
+        rng = torch.Generator()
+        rng.manual_seed(self.seed + epoch)
+ 
+        shard_order = list(range(len(self.files)))
+        if self.shuffle:
+            shard_order = torch.randperm(len(self.files), generator=rng).tolist()
+ 
+        self._index = []
+        for shard_idx in shard_order:
+            n = self.shard_lengths[shard_idx]
+            within = list(range(n))
+            if self.shuffle:
+                within = torch.randperm(n, generator=rng).tolist()
+            for w in within:
+                self._index.append((shard_idx, w))
+ 
+    def set_epoch(self, epoch):
+        """Call at the start of each training epoch to re-shuffle."""
+        if self.shuffle:
+            self._build_index(epoch)
+ 
     def __len__(self):
-        return len(self.data)
+        return len(self._index)
+ 
     def __getitem__(self, idx):
-        item = self.data[idx]
-        return item["x"], item["y"]  # x: [T,80], y: int
+        shard_idx, within_idx = self._index[idx]
+        if self._cached_shard_idx != shard_idx:
+            self._cached_shard = torch.load(self.files[shard_idx], weights_only=False)
+            self._cached_shard_idx = shard_idx
+        item = self._cached_shard[within_idx]
+        return item["x"], item["y"]
 
 class FNNBaseline(nn.Module):
     def __init__(self, num_classes, input_dim=80, dropout=0.3):
@@ -59,13 +105,6 @@ def num_classes_for_region(region, json_path="fleurs_regions.json"):
         all_regions = json.load(f)
     return len(all_regions[region]["configs"])
 
-def load_sharded_dataset(shard_dir, prefix):
-    files = sorted(glob.glob(os.path.join(shard_dir, f"{prefix}_shard_*.pt")))
-    all_data = []
-    for f in files:
-        all_data.extend(torch.load(f, weights_only=False))
-    return all_data
-
 def collate_fnn(batch):
     xs, ys = zip(*batch)
     pooled = [x.mean(dim=0) for x in xs]         # [80]
@@ -77,13 +116,13 @@ def build_loaders(save_root, batch_size):
     train_shards = os.path.join(save_root, "train_shards")
     val_shards = os.path.join(save_root, "validation_shards")
     test_shards = os.path.join(save_root, "test_shards")
-    train_data = load_sharded_dataset(train_shards, "train")
-    val_data = load_sharded_dataset(val_shards, "validation")
-    test_data = load_sharded_dataset(test_shards, "test")
-    train_loader = DataLoader(PreprocessedDataset(train_data), batch_size=batch_size, shuffle=True, collate_fn=collate_fnn)
-    val_loader = DataLoader(PreprocessedDataset(val_data), batch_size=batch_size, shuffle=False, collate_fn=collate_fnn)
-    test_loader = DataLoader(PreprocessedDataset(test_data), batch_size=batch_size, shuffle=False, collate_fn=collate_fnn)
- 
+    train_data = ShardedDataset(train_shards, "train", shuffle=True)
+    val_data = ShardedDataset(val_shards, "validation", shuffle=False)
+    test_data = ShardedDataset(test_shards, "test", shuffle=False)
+    print("Train:", len(train_data), "Val:", len(val_data), "Test:", len(test_data))
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=False, collate_fn=collate_fnn)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, collate_fn=collate_fnn)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, collate_fn=collate_fnn)
     return train_loader, val_loader, test_loader
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
@@ -126,6 +165,7 @@ def run_training(model, train_loader, val_loader, optimizer, criterion, device, 
     best_val_acc, best_epoch, best_state = -1.0, -1, None
 
     for epoch in range(1, num_epochs+1):
+        train_loader.dataset.set_epoch(epoch)
         tr_loss, tr_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
         va_loss, va_acc = evaluate(model, val_loader, criterion, device)
         history["train_loss"].append(tr_loss)
