@@ -1,9 +1,13 @@
 import os
+import sys
 import torch
 import torchaudio
 from tqdm import tqdm
 from datasets import load_dataset, interleave_datasets, DatasetDict
-from build_configs import load_configs
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from build_configs import FLEURS_GROUP_INFO
 
 
 TARGET_SR = 16000
@@ -67,9 +71,8 @@ def preprocess_and_save_shards(split_ds, shard_dir, prefix, global_to_local,
     print(f"Saved {total} examples into shards at: {shard_dir}")
 
 def preprocess(region, save_root="fleurs_preprocessed"):
-    region_info = load_configs(region)
-    global_ids = region_info["lang_ids"]
-    configs = region_info["configs"]
+    global_ids = FLEURS_GROUP_INFO["lang_ids"]
+    configs = FLEURS_GROUP_INFO["configs"]
     ds = load_group_dataset_non_streaming(configs)
     global_to_local = {gid: i for i, gid in enumerate(global_ids)}
 

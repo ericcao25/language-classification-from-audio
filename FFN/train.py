@@ -5,12 +5,17 @@ import json
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import confusion_matrix, accuracy_score
+from pathlib import Path
 from preprocessing import preprocess
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from build_configs import FLEURS_GROUP_INFO
 
 
 class ShardedDataset(Dataset):
@@ -100,10 +105,8 @@ def shards_exist(region_root):
             return False
     return True
 
-def num_classes_for_region(region, json_path="fleurs_regions.json"):
-    with open(json_path, "r") as f:
-        all_regions = json.load(f)
-    return len(all_regions[region]["configs"])
+def num_classes_for_region(region):
+    return len(FLEURS_GROUP_INFO[region]["configs"])
 
 def collate_fnn(batch):
     xs, ys = zip(*batch)
@@ -211,13 +214,16 @@ def plot_curves(history, title_prefix, best_epoch=None):
     plt.ylabel("accuracy")
     plt.show()
 
-def plot_confusion_matrix(y_true, y_pred, title):
+def plot_confusion_matrix(y_true, y_pred, lang_names, title):
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, cmap="Blues")
+    sns.heatmap(cm, cmap="Blues", xticklabels=lang_names, yticklabels=lang_names)
     plt.title(title)
     plt.xlabel("Predicted")
     plt.ylabel("True")
+    plt.xticks(rotation=45, ha="right")
+    plt.yticks(rotation=0)
+    plt.tight_layout()
     plt.show()
 
 def main(region, batch_size=256, save_root="fleurs_preprocessed"):
@@ -255,16 +261,16 @@ def main(region, batch_size=256, save_root="fleurs_preprocessed"):
     model_up2 = FNN_BN(num_classes).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model_up2.parameters(), lr=1e-4, weight_decay=2e-2)
-    history_up2, best_epoch_up2 = run_training(model_up2, train_loader, val_loader, optimizer, criterion, device, 60, "UP2", track_best=True)
+    history_up2, best_epoch_up2 = run_training(model_up2, train_loader, val_loader, optimizer, criterion, device, 1, "UP2", track_best=True)
     te_loss, te_acc, y_true, y_pred = evaluate(model_up2, test_loader, criterion, device, return_preds=True)
     print(f"[UPGRADED FFN 2] TEST | loss={te_loss:.4f} acc={te_acc:.4f} (sklearn acc={accuracy_score(y_true, y_pred):.4f})")
     plot_curves(history_up2, "UPGRADED FFN 2", best_epoch_up2)
-    plot_confusion_matrix(y_true, y_pred, "UPGRADED FFN 2 Test Confusion Matrix")
+    plot_confusion_matrix(y_true, y_pred, FLEURS_GROUP_INFO[region]["names"], "UPGRADED FFN 2 Test Confusion Matrix")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FLEURS regional language-ID pipeline")
-    parser.add_argument("--region", choices=["eastern_europe", "western_europe", "central_asia_middle_east_north_africa", "sub_saharan_africa", "south_asia", "south_east_asia", "cjk"])
+    parser.add_argument("--region", type=str, choices=["eastern_europe", "western_europe", "central_asia_middle_east_north_africa", "sub_saharan_africa", "south_asia", "south_east_asia", "cjk"])
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--save_root", type=str, default="fleurs_preprocessed")
     args = parser.parse_args()
