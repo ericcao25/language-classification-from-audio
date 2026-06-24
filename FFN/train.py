@@ -1,7 +1,6 @@
 import argparse
 import copy
 import glob
-import json
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -9,9 +8,9 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import confusion_matrix, accuracy_score
-from pathlib import Path
 from preprocessing import preprocess
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))

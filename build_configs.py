@@ -16,7 +16,7 @@ _FLEURS_GROUP_TO_LONG = OrderedDict({
     "sub_saharan_africa": ["Afrikaans", "Amharic", "Fula", "Ganda", "Hausa", "Igbo", "Kamba", "Lingala", "Luo", "Northern-Sotho", "Nyanja", "Oromo", "Shona", "Somali", "Swahili", "Umbundu", "Wolof", "Xhosa", "Yoruba", "Zulu"],
     "south_asia": ["Assamese", "Bengali", "Gujarati", "Hindi", "Kannada", "Malayalam", "Marathi", "Nepali", "Oriya", "Punjabi", "Sindhi", "Tamil", "Telugu", "Urdu"],
     "south_east_asia": ["Burmese", "Cebuano", "Filipino", "Indonesian", "Javanese", "Khmer", "Lao", "Malay", "Maori", "Thai", "Vietnamese"],
-    "chinese_japanase_korean": ["Mandarin Chinese", "Cantonese Chinese", "Japanese", "Korean"],
+    "cjk": ["Mandarin Chinese", "Cantonese Chinese", "Japanese", "Korean"],
 })
 _FLEURS_LANG_TO_GID = {k: i for i, k in enumerate(_FLEURS_LANG)}
 FLEURS_GROUP_INFO = {
