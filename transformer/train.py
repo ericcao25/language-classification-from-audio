@@ -300,7 +300,6 @@ def main(region, num_epochs=1, pooling_mode="mean", train_batch_size=2, eval_bat
         batch_size=train_batch_size,
         shuffle=True,
         collate_fn=collator,
-        num_workers=2,
         pin_memory=True,
     )
     val_loader = DataLoader(
@@ -308,7 +307,6 @@ def main(region, num_epochs=1, pooling_mode="mean", train_batch_size=2, eval_bat
         batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collator,
-        num_workers=2,
         pin_memory=True,
     )
 

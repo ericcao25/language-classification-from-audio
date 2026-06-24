@@ -51,7 +51,6 @@ def main(region, pooling_mode="mean"):
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collator,
-        num_workers=2,
         pin_memory=(device == "cuda"),
     )
 
