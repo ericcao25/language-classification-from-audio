@@ -1,33 +1,24 @@
+import argparse
 import os
 import math
-import time
 import numpy as np
+import sys
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List, Union, Any
-
 from datasets import load_dataset, Audio, concatenate_datasets
+from pathlib import Path
+from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoFeatureExtractor
 from transformers.utils import ModelOutput
 from transformers import Wav2Vec2PreTrainedModel, Wav2Vec2Model
+from typing import Optional, Tuple, Dict, List, Union, Any
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from build_configs import FLEURS_GROUP_INFO
 
 
-# ----------------------------
-# 1) Choose languages (FLEURS configs)
-# ----------------------------
-# LANG_CONFIGS = ['hy_am', 'be_by', 'bg_bg', 'cs_cz', 'et_ee', 'ka_ge', 'lv_lv', 'lt_lt', 'mk_mk', 'pl_pl', 'ro_ro', 'ru_ru', 'sr_rs', 'sk_sk', 'sl_si', 'uk_ua']
-LANG_CONFIGS = ['my_mm', 'ceb_ph', 'fil_ph', 'id_id', 'jv_id', 'km_kh', 'lo_la', 'ms_my', 'mi_nz', 'th_th', 'vi_vn']
-MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
-POOLING_MODE = "mean"  # "mean" / "sum" / "max"
-
-MAX_SEC = 10.0
-MAX_SAMPLES = int(16000 * MAX_SEC)
-
-# ----------------------------
-# 2) Build FLEURS train/val across configs
-# ----------------------------
+MAX_SAMPLES = 160000
 
 def crop_audio(ex):
     a = ex["audio"]["array"]
@@ -72,10 +63,6 @@ def load_fleurs_langid_dataset(lang_configs: List[str], sampling_rate: int = 160
 
     return train_ds, val_ds, test_ds, label2id, id2label
 
-
-# ----------------------------
-# 3) Preprocess (feature extractor -> input_values)
-# ----------------------------
 def make_preprocess_fn(feature_extractor):
     def preprocess(batch):
         audio = batch["audio"]
@@ -95,10 +82,6 @@ def make_preprocess_fn(feature_extractor):
 
     return preprocess
 
-
-# ----------------------------
-# 4) Model: wav2vec2 + pooling + classifier
-# ----------------------------
 @dataclass
 class SpeechClassifierOutput(ModelOutput):
     loss: Optional[torch.FloatTensor] = None
@@ -175,14 +158,10 @@ class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
             return_dict=True,
         )
         hidden_states = outputs.last_hidden_state
-        pooled = self.merged_strategy(hidden_states, None, self.pooling_mode)
+        pooled = self.merged_strategy(hidden_states, attention_mask, self.pooling_mode)
         logits = self.classifier(pooled)
         return logits
 
-
-# ----------------------------
-# 5) Collator: pad inputs, stack labels
-# ----------------------------
 @dataclass
 class DataCollatorSpeechClassificationWithPadding:
     feature_extractor: Any
@@ -237,10 +216,6 @@ class DataCollatorSpeechClassificationWithPadding:
         batch["labels"] = labels
         return batch
 
-
-# ----------------------------
-# 6) Training + evaluation
-# ----------------------------
 @torch.no_grad()
 def evaluate(model, dataloader, device, use_amp=True):
     model.eval()
@@ -270,7 +245,6 @@ def evaluate(model, dataloader, device, use_amp=True):
         "eval_acc": correct / max(total, 1),
     }
 
-
 def save_checkpoint(path, model, optimizer, scheduler, scaler, step, best_metric=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(
@@ -285,42 +259,37 @@ def save_checkpoint(path, model, optimizer, scheduler, scaler, step, best_metric
         path,
     )
 
-
-def main():
-    # ----------------------------
-    # Hyperparams (match your Trainer-ish setup)
-    # ----------------------------
-    output_dir = "xlsr300m-fleurs-langid"
-    per_device_train_batch_size = 2
-    per_device_eval_batch_size = 4
+def main(region, num_epochs=1, pooling_mode="mean", train_batch_size=2, eval_batch_size=4):
+    model_name = "facebook/wav2vec2-xls-r-300m"
+    output_dir = region
     grad_accum_steps = 2
-    num_epochs = 1
     lr = 2e-5
     eval_every_steps = 500
     save_every_steps = 500
     use_amp = True
+    configs = FLEURS_GROUP_INFO[region]["configs"]
 
-    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
+    feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
     target_sr = 16000
 
-    train_ds, val_ds, _, label2id, id2label = load_fleurs_langid_dataset(LANG_CONFIGS, sampling_rate=target_sr)
+    train_ds, val_ds, _, label2id, id2label = load_fleurs_langid_dataset(configs, sampling_rate=target_sr)
 
     preprocess = make_preprocess_fn(feature_extractor)
     train_ds = train_ds.map(preprocess, remove_columns=train_ds.column_names)
     val_ds = val_ds.map(preprocess, remove_columns=val_ds.column_names)
 
     config = AutoConfig.from_pretrained(
-        MODEL_NAME,
-        num_labels=len(LANG_CONFIGS),
+        model_name,
+        num_labels=len(configs),
         label2id=label2id,
         id2label=id2label,
         finetuning_task="wav2vec2_langid",
     )
-    setattr(config, "pooling_mode", POOLING_MODE)
+    setattr(config, "pooling_mode", pooling_mode)
 
-    model = Wav2Vec2ForSpeechClassification.from_pretrained(MODEL_NAME, config=config)
+    model = Wav2Vec2ForSpeechClassification.from_pretrained(model_name, config=config)
     model.freeze_feature_extractor()
     model.to(device)
 
@@ -328,7 +297,7 @@ def main():
 
     train_loader = DataLoader(
         train_ds,
-        batch_size=per_device_train_batch_size,
+        batch_size=train_batch_size,
         shuffle=True,
         collate_fn=collator,
         num_workers=2,
@@ -336,7 +305,7 @@ def main():
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=per_device_eval_batch_size,
+        batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collator,
         num_workers=2,
@@ -422,4 +391,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="FLEURS regional language-ID pipeline")
+    parser.add_argument("--region", type=str, choices=["eastern_europe", "western_europe", "central_asia_middle_east_north_africa", "sub_saharan_africa", "south_asia", "south_east_asia", "cjk"])
+    parser.add_argument("--num_epochs", type=int, default=1)
+    parser.add_argument("--pooling_mode", type=str, choices=["mean", "sum", "max"], default="mean")
+    parser.add_argument("--train_batch_size", type=int, default=2)
+    parser.add_argument("--eval_batch_size", type=int, default=4)
+    args = parser.parse_args()
+    main(args.region, num_epochs=args.num_epochs, pooling_mode=args.pooling_mode,
+         train_batch_size=args.train_batch_size, eval_batch_size=args.eval_batch_size)
