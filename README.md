@@ -8,6 +8,9 @@ This project explores language classification across various linguistic regions 
 
 We compare the efficacy of these four model types on an audio speech recognition dataset to classify languages based on audio samples.
 
+## Report
+For an in-depth discussion of the models and results, read the [report](report.pdf).
+
 ## Project Structure
 
 - **`FFN/`**: Python scripts for the Feed-Forward Neural Network models.
