@@ -6,7 +6,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoFeatureExtractor
 
-import transformer.train as tm
+import train as tm
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from build_configs import FLEURS_GROUP_INFO
 

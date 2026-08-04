@@ -129,6 +129,9 @@ class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
 
     def merged_strategy(self, hidden_states, attention_mask=None, mode="mean"):
         # hidden_states: (B, T, H)
+        if attention_mask is not None:
+            attention_mask = self.wav2vec2._get_feature_vector_attention_mask(hidden_states.shape[1], attention_mask)
+        
         if mode == "mean":
             if attention_mask is None:
                 return hidden_states.mean(dim=1)
@@ -382,6 +385,11 @@ def main(region, num_epochs=1, pooling_mode="mean", train_batch_size=2, eval_bat
         # epoch-end eval
         metrics = evaluate(model, val_loader, device, use_amp=use_amp)
         print(f"[epoch-end eval {epoch+1}] loss={metrics['eval_loss']:.4f} acc={metrics['eval_acc']:.4f}")
+        if metrics["eval_acc"] > best_acc:
+            best_acc = metrics["eval_acc"]
+            save_checkpoint(os.path.join(output_dir, "best.pt"), model, optimizer, scheduler, scaler,
+                            step=global_step, best_metric=best_acc)
+            print(f"  -> new best acc: {best_acc:.4f} (saved best.pt)")
 
     # final eval
     metrics = evaluate(model, val_loader, device, use_amp=use_amp)
